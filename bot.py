@@ -172,7 +172,7 @@ def rss_sync_worker():
             print(f"Error during RSS check: {e}")
 
         # ১০ মিনিট পর আবার চেক করবে (৬০০ সেকেন্ড)
-        time.sleep(600)
+        time.sleep(30)
 
 # ব্যাকগ্রাউন্ড থ্রেড রান করা
 threading.Thread(target=rss_sync_worker, daemon=True).start()
