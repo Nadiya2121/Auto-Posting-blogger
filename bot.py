@@ -26,13 +26,16 @@ def init_db():
 
 init_db()
 
-# প্রধান মেনু বাটন
+# প্রধান মেনু বাটন (সুন্দর ও গোছানো লেআউট)
 def main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn1 = types.KeyboardButton("🔌 Connect Blogger")
     btn2 = types.KeyboardButton("📊 My Status")
     btn3 = types.KeyboardButton("❌ Disconnect")
-    markup.add(btn1, btn2, btn3)
+    
+    # বাটনগুলো লাইনে লাইনে সাজানো
+    markup.row(btn1)           # প্রথম লাইনে বড় করে কানেক্ট বাটন
+    markup.row(btn2, btn3)     # দ্বিতীয় লাইনে পাশাপাশি দুটি বাটন
     return markup
 
 # /start কমান্ড হ্যান্ডলার
@@ -64,7 +67,7 @@ def save_email(message):
     try:
         cursor.execute("INSERT OR REPLACE INTO users (telegram_id, email) VALUES (?, ?)", (message.chat.id, email))
         conn.commit()
-        bot.send_message(message.chat.id, f"অভিনন্দন! আপনার ইমেইলটি সফলভাবে যুক্ত হয়েছে।\nসংযুক্ত ইমেইল: {email}")
+        bot.send_message(message.chat.id, f" canঅভিনন্দন! আপনার ইমেইলটি সফলভাবে যুক্ত হয়েছে।\nসংযুক্ত ইমেইল: {email}")
     except Exception as e:
         bot.send_message(message.chat.id, "দুঃখিত, কোনো সমস্যা হয়েছে। আবার চেষ্টা করুন।")
     finally:
