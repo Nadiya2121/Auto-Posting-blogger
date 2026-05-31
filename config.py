@@ -14,4 +14,4 @@ SENDER_EMAIL = "nahid421421@gmail.com"  # আপনার জিমেইল আ
 
 # গুগলের App Password (নরমাল পাসওয়ার্ড এখানে কাজ করবে না)
 # গুগল অ্যাকাউন্টে গিয়ে "App Passwords" তৈরি করে সেটি এখানে দিতে হবে।
-SENDER_PASSWORD = "Nahid270@@"
+SENDER_PASSWORD = "waoaymdcfxbxhlrm"
