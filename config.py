@@ -1,11 +1,11 @@
 # config.py
 
 # ১. টেলিগ্রাম বটের টোকেন (BotFather থেকে পাওয়া)
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+BOT_TOKEN = "8556190449:AAEYc4mFcujCQYoJ4Xy73ybMRbGuKxEstoE"
 
 # ২. আপনার মেইন ওয়েবসাইটের আরএসএস (RSS) লিংক
 # শেষে /feeds/posts/default যোগ করলে আরএসএস ফিড পাওয়া যায়
-SOURCE_RSS_URL = "https://yourblog.blogspot.com/feeds/posts/default"
+SOURCE_RSS_URL = "https://bdmoviezonehd.blogspot.com/feeds/posts/default"
 
 # ৩. ইমেইল পাঠানোর জন্য জিমেইল সেটিংস
 SMTP_SERVER = "smtp.gmail.com"
