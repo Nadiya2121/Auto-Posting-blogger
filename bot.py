@@ -1,0 +1,179 @@
+# bot.py
+import sqlite3
+import time
+import threading
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import feedparser
+import telebot
+from telebot import types
+import config
+
+# টেলিগ্রাম বট ইনিশিয়ালাইজ করা
+bot = telebot.TeleBot(config.BOT_TOKEN)
+
+# ডাটাবেজ কানেকশন এবং টেবিল তৈরি
+def init_db():
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users
+                      (telegram_id INTEGER PRIMARY KEY, email TEXT)''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS settings
+                      (key TEXT PRIMARY KEY, value TEXT)''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# প্রধান মেনু বাটন
+def main_keyboard():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    btn1 = types.KeyboardButton("🔌 Connect Blogger")
+    btn2 = types.KeyboardButton("📊 My Status")
+    btn3 = types.KeyboardButton("❌ Disconnect")
+    markup.add(btn1, btn2, btn3)
+    return markup
+
+# /start কমান্ড হ্যান্ডলার
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    welcome_text = (
+        "স্বাগতম! মুভি সিঙ্ক বটে আপনাকে অভিনন্দন।\n\n"
+        "নিচের বাটনগুলো ব্যবহার করে আপনার ব্লগের সিক্রেট ইমেইলটি যুক্ত করুন।"
+    )
+    bot.send_message(message.chat.id, welcome_text, reply_markup=main_keyboard())
+
+# কানেক্ট বাটন হ্যান্ডলার
+@bot.message_handler(func=lambda message: message.text == "🔌 Connect Blogger")
+def ask_email(message):
+    msg = bot.send_message(
+        message.chat.id, 
+        "দয়া করে আপনার ব্লগারের পোস্ট করার গোপন ইমেইলটি দিন (যেমন: username.secret@blogger.com):"
+    )
+    bot.register_next_step_handler(msg, save_email)
+
+def save_email(message):
+    email = message.text.strip()
+    if not email.endswith("@blogger.com"):
+        bot.send_message(message.chat.id, "ভুল ইমেইল! ইমেইলটি অবশ্যই '@blogger.com' দিয়ে শেষ হতে হবে। আবার চেষ্টা করুন।")
+        return
+
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT OR REPLACE INTO users (telegram_id, email) VALUES (?, ?)", (message.chat.id, email))
+        conn.commit()
+        bot.send_message(message.chat.id, f"অভিনন্দন! আপনার ইমেইলটি সফলভাবে যুক্ত হয়েছে।\nসংযুক্ত ইমেইল: {email}")
+    except Exception as e:
+        bot.send_message(message.chat.id, "দুঃখিত, কোনো সমস্যা হয়েছে। আবার চেষ্টা করুন।")
+    finally:
+        conn.close()
+
+# স্ট্যাটাস বাটন হ্যান্ডলার
+@bot.message_handler(func=lambda message: message.text == "📊 My Status")
+def check_status(message):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT email FROM users WHERE telegram_id = ?", (message.chat.id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        bot.send_message(message.chat.id, f"আপনার ব্লগের সাথে সিঙ্ক সচল আছে।\nসংযুক্ত ইমেইল: {row[0]}")
+    else:
+        bot.send_message(message.chat.id, "আপনার কোনো ইমেইল কানেক্ট করা নেই। '🔌 Connect Blogger' বাটনে ক্লিক করুন।")
+
+# ডিসকানেক্ট বাটন হ্যান্ডলার
+@bot.message_handler(func=lambda message: message.text == "❌ Disconnect")
+def disconnect_blogger(message):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM users WHERE telegram_id = ?", (message.chat.id,))
+    conn.commit()
+    conn.close()
+    bot.send_message(message.chat.id, "আপনার ইমেইলটি ডিসকানেক্ট করা হয়েছে। এখন আর কোনো পোস্ট যাবে না।")
+
+
+# --- ইমেইল এবং সিঙ্ক সেকশন (ব্যাকগ্রাউন্ড থ্রেড) ---
+
+def send_posts_via_email(title, html_content):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT email FROM users")
+    rows = cursor.fetchall()
+    emails = [row[0] for row in rows]
+    conn.close()
+
+    if not emails:
+        return
+
+    try:
+        # SMTP সার্ভারে লগইন
+        server = smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT)
+        server.starttls()
+        server.login(config.SENDER_EMAIL, config.SENDER_PASSWORD)
+
+        for receiver_email in emails:
+            try:
+                msg = MIMEMultipart()
+                msg['From'] = config.SENDER_EMAIL
+                msg['To'] = receiver_email
+                msg['Subject'] = title
+
+                # HTML পোস্ট কন্টেন্ট যুক্ত করা
+                msg.attach(MIMEText(html_content, 'html', 'utf-8'))
+                
+                # মেইল পাঠানো
+                server.sendmail(config.SENDER_EMAIL, receiver_email, msg.as_string())
+                print(f"Sent successfully to: {receiver_email}")
+            except Exception as e:
+                print(f"Failed to send to {receiver_email}: {e}")
+                
+        server.quit()
+    except Exception as e:
+        print(f"SMTP Error: {e}")
+
+def rss_sync_worker():
+    """১০ মিনিট পর পর মেইন সাইট চেক করার ব্যাকগ্রাউন্ড ফাংশন"""
+    print("RSS checking thread started...")
+    while True:
+        try:
+            feed = feedparser.parse(config.SOURCE_RSS_URL)
+            if feed.entries:
+                latest_post = feed.entries[0]
+                latest_link = latest_post.link
+                latest_title = latest_post.title
+                
+                # পোস্টের HTML বডি নেওয়া
+                latest_html_content = latest_post.get('content', [{}])[0].get('value', latest_post.summary)
+
+                # ডাটাবেজ থেকে সর্বশেষ সেভ করা পোস্টের লিংক চেক করা
+                conn = sqlite3.connect('database.db')
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM settings WHERE key = 'last_post_link'")
+                row = cursor.fetchone()
+                last_saved_link = row[0] if row else None
+
+                # যদি নতুন পোস্ট পাওয়া যায়
+                if last_saved_link != latest_link:
+                    print(f"New post found: {latest_title}")
+                    # সবাইকে মেইল পাঠানো
+                    send_posts_via_email(latest_title, latest_html_content)
+                    
+                    # সর্বশেষ পোস্টের লিংক ডাটাবেজে আপডেট করা
+                    cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_post_link', ?)", (latest_link,))
+                    conn.commit()
+                conn.close()
+        except Exception as e:
+            print(f"Error during RSS check: {e}")
+
+        # ১০ মিনিট পর আবার চেক করবে (৬০০ সেকেন্ড)
+        time.sleep(600)
+
+# ব্যাকগ্রাউন্ড থ্রেড রান করা
+threading.Thread(target=rss_sync_worker, daemon=True).start()
+
+# টেলিগ্রাম বট চালু করা
+print("Telegram Bot is running...")
+bot.infinity_polling()
