@@ -10,8 +10,8 @@ SOURCE_RSS_URL = "https://bdmoviezonehd.blogspot.com/feeds/posts/default"
 # ৩. ইমেইল পাঠানোর জন্য জিমেইল সেটিংস
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-SENDER_EMAIL = "your-gmail@gmail.com"  # আপনার জিমেইল আইডি
+SENDER_EMAIL = "nahid421421@gmail.com"  # আপনার জিমেইল আইডি
 
 # গুগলের App Password (নরমাল পাসওয়ার্ড এখানে কাজ করবে না)
 # গুগল অ্যাকাউন্টে গিয়ে "App Passwords" তৈরি করে সেটি এখানে দিতে হবে।
-SENDER_PASSWORD = "your-google-app-password"
+SENDER_PASSWORD = "Nahid270@@"
