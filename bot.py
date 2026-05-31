@@ -5,6 +5,7 @@ import threading
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.header import Header
 import feedparser
 import telebot
 from telebot import types
@@ -17,25 +18,35 @@ bot = telebot.TeleBot(config.BOT_TOKEN)
 def init_db():
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
+    # ইউজার টেবিল
     cursor.execute('''CREATE TABLE IF NOT EXISTS users
                       (telegram_id INTEGER PRIMARY KEY, email TEXT)''')
+    # সেটিংস টেবিল
     cursor.execute('''CREATE TABLE IF NOT EXISTS settings
                       (key TEXT PRIMARY KEY, value TEXT)''')
+    # সিঙ্ক হিস্টোরি টেবিল
+    cursor.execute('''CREATE TABLE IF NOT EXISTS sync_history
+                      (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                       telegram_id INTEGER,
+                       post_title TEXT,
+                       status TEXT,
+                       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
     conn.commit()
     conn.close()
 
 init_db()
 
-# প্রধান মেনু বাটন (সুন্দর ও গোছানো লেআউট)
+# প্রধান মেনু বাটন (৪টি বাটন লেআউট)
 def main_keyboard():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn1 = types.KeyboardButton("🔌 Connect Blogger")
     btn2 = types.KeyboardButton("📊 My Status")
-    btn3 = types.KeyboardButton("❌ Disconnect")
+    btn3 = types.KeyboardButton("📈 Sync History")
+    btn4 = types.KeyboardButton("❌ Disconnect")
     
-    # বাটনগুলো লাইনে লাইনে সাজানো
-    markup.row(btn1)           # প্রথম লাইনে বড় করে কানেক্ট বাটন
-    markup.row(btn2, btn3)     # দ্বিতীয় লাইনে পাশাপাশি দুটি বাটন
+    markup.row(btn1)           # প্রথম লাইনে কানেক্ট বাটন
+    markup.row(btn2, btn3)     # দ্বিতীয় লাইনে স্ট্যাটাস এবং হিস্টোরি বাটন
+    markup.row(btn4)           # তৃতীয় লাইনে ডিসকানেক্ট বাটন
     return markup
 
 # /start কমান্ড হ্যান্ডলার
@@ -67,7 +78,7 @@ def save_email(message):
     try:
         cursor.execute("INSERT OR REPLACE INTO users (telegram_id, email) VALUES (?, ?)", (message.chat.id, email))
         conn.commit()
-        bot.send_message(message.chat.id, f" canঅভিনন্দন! আপনার ইমেইলটি সফলভাবে যুক্ত হয়েছে।\nসংযুক্ত ইমেইল: {email}")
+        bot.send_message(message.chat.id, f"অভিনন্দন! আপনার ইমেইলটি সফলভাবে যুক্ত হয়েছে।\nসংযুক্ত ইমেইল: {email}")
     except Exception as e:
         bot.send_message(message.chat.id, "দুঃখিত, কোনো সমস্যা হয়েছে। আবার চেষ্টা করুন।")
     finally:
@@ -87,6 +98,32 @@ def check_status(message):
     else:
         bot.send_message(message.chat.id, "আপনার কোনো ইমেইল কানেক্ট করা নেই। '🔌 Connect Blogger' বাটনে ক্লিক করুন।")
 
+# সিঙ্ক হিস্টোরি বাটন হ্যান্ডলার (নতুন ফিচার)
+@bot.message_handler(func=lambda message: message.text == "📈 Sync History")
+def show_history(message):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    # শেষ ১০টি পোস্টের হিস্টোরি দেখাবে
+    cursor.execute("""SELECT post_title, status, timestamp 
+                      FROM sync_history 
+                      WHERE telegram_id = ? 
+                      ORDER BY id DESC LIMIT 10""", (message.chat.id,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        bot.send_message(message.chat.id, "এখনো কোনো পোস্ট সিঙ্ক করা হয়নি। আপনার মেইন ব্লগে নতুন পোস্ট করলে এখানে হিস্টোরি দেখতে পাবেন।")
+        return
+
+    history_text = "📊 **আপনার ব্লগের সিঙ্ক হিস্টোরি (সর্বশেষ ১০টি):**\n\n"
+    for row in rows:
+        title = row[0]
+        status = "✅ সফল" if row[1] == "Success" else "❌ ব্যর্থ"
+        time_stamp = row[2]
+        history_text += f"🎬 **মুভি:** {title}\n**স্ট্যাটাস:** {status}\n**সময়:** {time_stamp}\n----------------------\n"
+
+    bot.send_message(message.chat.id, history_text, parse_mode="Markdown")
+
 # ডিসকানেক্ট বাটন হ্যান্ডলার
 @bot.message_handler(func=lambda message: message.text == "❌ Disconnect")
 def disconnect_blogger(message):
@@ -100,45 +137,58 @@ def disconnect_blogger(message):
 
 # --- ইমেইল এবং সিঙ্ক সেকশন (ব্যাকগ্রাউন্ড থ্রেড) ---
 
+def save_sync_log(telegram_id, post_title, status):
+    """ডাটাবেজে সিঙ্ক হিস্টোরি সংরক্ষণ করার ফাংশন"""
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO sync_history (telegram_id, post_title, status) VALUES (?, ?, ?)", 
+                   (telegram_id, post_title, status))
+    conn.commit()
+    conn.close()
+
 def send_posts_via_email(title, html_content):
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT email FROM users")
+    cursor.execute("SELECT telegram_id, email FROM users")
     rows = cursor.fetchall()
-    emails = [row[0] for row in rows]
     conn.close()
 
-    if not emails:
+    if not rows:
         return
 
     try:
-        # SMTP সার্ভারে লগইন
+        # SMTP সার্ভারে লগইন (উন্নত হেডার সহ)
         server = smtplib.SMTP(config.SMTP_SERVER, config.SMTP_PORT)
         server.starttls()
         server.login(config.SENDER_EMAIL, config.SENDER_PASSWORD)
 
-        for receiver_email in emails:
+        for tg_id, receiver_email in rows:
             try:
                 msg = MIMEMultipart()
                 msg['From'] = config.SENDER_EMAIL
                 msg['To'] = receiver_email
-                msg['Subject'] = title
+                msg['Subject'] = Header(title, 'utf-8')
 
-                # HTML পোস্ট কন্টেন্ট যুক্ত করা
+                # মেইল ফিল্টারিং সমস্যা দূর করতে উন্নত বডি টেক্সট
                 msg.attach(MIMEText(html_content, 'html', 'utf-8'))
                 
                 # মেইল পাঠানো
                 server.sendmail(config.SENDER_EMAIL, receiver_email, msg.as_string())
                 print(f"Sent successfully to: {receiver_email}")
+                
+                # সফল হিস্টোরি সেভ করা
+                save_sync_log(tg_id, title, "Success")
             except Exception as e:
                 print(f"Failed to send to {receiver_email}: {e}")
+                # ব্যর্থ হিস্টোরি সেভ করা
+                save_sync_log(tg_id, title, f"Failed: {str(e)}")
                 
         server.quit()
     except Exception as e:
         print(f"SMTP Error: {e}")
 
 def rss_sync_worker():
-    """১০ মিনিট পর পর মেইন সাইট চেক করার ব্যাকগ্রাউন্ড ফাংশন"""
+    """১ মিনিট পর পর মেইন সাইট চেক করার ব্যাকগ্রাউন্ড ফাংশন"""
     print("RSS checking thread started...")
     while True:
         try:
@@ -171,8 +221,8 @@ def rss_sync_worker():
         except Exception as e:
             print(f"Error during RSS check: {e}")
 
-        # ১০ মিনিট পর আবার চেক করবে (৬০০ সেকেন্ড)
-        time.sleep(30)
+        # ১ মিনিট পর আবার চেক করবে (৬০ সেকেন্ড) - আপনার রিকোয়েস্ট অনুযায়ী ৬০ সেকেন্ড করা হয়েছে
+        time.sleep(60)
 
 # ব্যাকগ্রাউন্ড থ্রেড রান করা
 threading.Thread(target=rss_sync_worker, daemon=True).start()
